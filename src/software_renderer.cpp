@@ -22,6 +22,7 @@ void SoftwareRendererImp::draw_svg(SVG& svg)
     transformation = svg_2_screen;
 
     // draw all elements
+    group_transform = Matrix3x3::identity();
     for (size_t i = 0; i < svg.elements.size(); ++i) {
         draw_element(svg.elements[i]);
     }
@@ -82,40 +83,82 @@ void SoftwareRendererImp::set_render_target(unsigned char* render_target,
     this->target_h = height;
 }
 
+inline static Vector2D model_transform(Matrix3x3 canvas, Matrix3x3 parent,Vector2D point){
+    auto result = parent * canvas * Vector3D{ point.x, point.y, 1 };
+    return { result.x, result.y };
+}
+
 void SoftwareRendererImp::draw_element(SVGElement* element)
 {
 
     // Task 5 (part 1):
     // Modify this to implement the transformation stack
-
     switch (element->type) {
     case POINT:
-        draw_point(static_cast<Point&>(*element));
+    {
+        Point point = static_cast<Point&>(*element);
+        point.position = model_transform(point.transform, group_transform, point.position);
+        draw_point(point);
+    }
         break;
     case LINE:
-        draw_line(static_cast<Line&>(*element));
+    {
+        Line line = static_cast<Line&>(*element);
+        line.from = model_transform(line.transform, group_transform, line.from);
+        line.to = model_transform(line.transform, group_transform, line.to);
+        draw_line(line);
+    }
         break;
     case POLYLINE:
-        draw_polyline(static_cast<Polyline&>(*element));
+    {
+        Polyline polyline = static_cast<Polyline&>(*element);
+        for (auto& point : polyline.points) {
+            point = model_transform(polyline.transform, group_transform, point);
+        }
+        draw_polyline(polyline);
+    }
         break;
     case RECT:
-        draw_rect(static_cast<Rect&>(*element));
+    {
+        Rect rect = static_cast<Rect&>(*element);
+        rect.position = model_transform(rect.transform, group_transform, rect.position);
+        draw_rect(rect);
+    }
         break;
     case POLYGON:
-        draw_polygon(static_cast<Polygon&>(*element));
+    {
+        Polygon polygon = static_cast<Polygon&>(*element);
+        for (auto& point : polygon.points) {
+            point = model_transform(polygon.transform, group_transform, point);
+        }
+        draw_polygon(polygon);
+    }
         break;
     case ELLIPSE:
-        draw_ellipse(static_cast<Ellipse&>(*element));
+    {
+        Ellipse ellipse = static_cast<Ellipse&>(*element);
+        ellipse.center = model_transform(ellipse.transform, group_transform, ellipse.center);
+        draw_ellipse(ellipse);
+    }
         break;
     case IMAGE:
-        draw_image(static_cast<Image&>(*element));
+    {
+        Image image = static_cast<Image&>(*element);
+        image.position = model_transform(image.transform, group_transform, image.position);
+        draw_image(image);
+    }
         break;
     case GROUP:
-        draw_group(static_cast<Group&>(*element));
+    {
+        Group& group = static_cast<Group&>(*element);
+        group_transform = group.transform;
+        draw_group(group);
+    }
         break;
     default:
         break;
     }
+
 }
 
 // Primitive Drawing //
@@ -243,8 +286,22 @@ void SoftwareRendererImp::draw_group(Group& group)
 // Rasterization //
 
 inline static void render_point(int x, int y, Color& color,
-    unsigned char* render_target, size_t target_w)
-{
+    unsigned char* render_target, size_t target_w, size_t target_h)
+{   
+    if (x < 0 || x >= target_w)
+        return;
+    if (y < 0 || y >= target_h)
+        return;
+    // for alpha blending
+    auto aTmp = color.a;
+    color = color * aTmp;
+    color.a = aTmp;
+    int index = y * target_w + x;
+    Color canvas = { render_target[4 * index] / 255.f, render_target[4 * index + 1] / 255.f, render_target[4 * index + 2] / 255.f, render_target[4 * index + 3] / 255.f };
+    color.r = (1 - color.a) * canvas.r + color.r;
+    color.g = (1 - color.a) * canvas.g + color.g;
+    color.b = (1 - color.a) * canvas.b + color.b;
+    color.a = 1 - (1 - color.a) * (1 - canvas.a);
     render_target[4 * (x + y * target_w)] = (uint8_t)(color.r * 255);
     render_target[4 * (x + y * target_w) + 1] = (uint8_t)(color.g * 255);
     render_target[4 * (x + y * target_w) + 2] = (uint8_t)(color.b * 255);
@@ -267,11 +324,10 @@ void SoftwareRendererImp::rasterize_point(float x, float y, Color color)
     if (sy < 0 || sy >= target_h)
         return;
 
-        // fill sample - NOT doing alpha blending!
 #if defined(SSAA) || defined(MLAA)
-    render_point(x, y, color, &render_target_tmp[0], target_w);
+    render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-    render_point(x, y, color, render_target, target_w);
+    render_point(x, y, color, render_target, target_w, target_h);
 #endif
 }
 
@@ -306,9 +362,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
 
         for (int x = x0; x <= x1; ++x) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             if (d < 0.f) {
                 y += 1;
@@ -328,9 +384,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
 
         for (int y = y0; y <= y1; ++y) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             if (d > 0.f) {
                 x += 1;
@@ -350,9 +406,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
 
         for (int x = x0; x <= x1; ++x) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             if (d > 0.f) {
                 y -= 1;
@@ -372,9 +428,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
 
         for (int y = y0; y >= y1; --y) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             if (d < 0.f) {
                 x += 1;
@@ -399,9 +455,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
         int eps = 0;
         for (int x = sx0; x < sx1; ++x) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             eps += dy;
             if ((eps << 1) > dx) {
@@ -414,9 +470,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
         int eps = 0;
         for (int y = sy0; y < sy1; ++y) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             eps += dx;
             if ((eps << 1) > dy) {
@@ -429,9 +485,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
         int eps = 0;
         for (int x = sx0; x < sx1; ++x) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             eps += dy;
             if ((eps << 1) < -dx) {
@@ -444,9 +500,9 @@ void SoftwareRendererImp::rasterize_line(float x0, float y0, float x1, float y1,
         int eps = 0;
         for (int y = sy0; y > sy1; --y) {
 #if defined(SSAA) || defined(MLAA)
-            render_point(x, y, color, &render_target_tmp[0], target_w);
+            render_point(x, y, color, &render_target_tmp[0], target_w, target_h);
 #else
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
 #endif
             eps -= dx;
             if ((eps << 1) < dy) {
@@ -500,11 +556,11 @@ void SoftwareRendererImp::rasterize_triangle(float x0, float y0, float x1,
             float gamma = numeratorGammaTmp / denominatorGamma;
             if (alpha >= 0 && beta >= 0 && gamma >= 0)
 #ifdef SSAA
-                render_point(x, y, color, &supersample_target[0], target_w * sample_rate);
+                render_point(x, y, color, &supersample_target[0], target_w * sample_rate, target_h * sample_rate);
 #elif defined(MLAA)
-                render_point(x, y, color, &mlaa_sample_target[0], target_w);
+                render_point(x, y, color, &mlaa_sample_target[0], target_w, target_h);
 #else
-                render_point(x, y, color, render_target, target_w);
+                render_point(x, y, color, render_target, target_w, target_h);
 #endif
             numeratorAlphaTmp += dyAlpha;
             numeratorBetaTmp += dyBeta;
@@ -521,6 +577,51 @@ void SoftwareRendererImp::rasterize_image(float x0, float y0, float x1,
 {
     // Task 6:
     // Implement image rasterization
+#ifdef SSAA
+    x0 *= sample_rate;
+    y0 *= sample_rate;
+    x1 *= sample_rate;
+    y1 *= sample_rate;
+#endif // SSAA
+    // map [x0, x1] * [y0, y1] to [0, 1] * [0, 1]
+    Matrix3x3 m = Matrix3x3::identity();
+    m(0, 0) = 1 / (x1 - x0);
+    m(0, 2) = x0 / (x0 - x1);
+    m(1, 1) = 1 / (y1 - y0);
+    m(1, 2) = y0 / (y0 - y1);
+    int sx0 = std::floor(x0);
+    int sy0 = std::floor(y0);
+    int sx1 = std::floor(x1);
+    int sy1 = std::floor(y1);
+    for (int y = sy0; y <= sy1; ++y) {
+        for (int x = sx0; x <= sx1; ++x) {
+            auto [u, v, _] = m * Vector3D{ static_cast<double>(x), static_cast<double>(y), 1 };
+#ifndef MIPMAP
+            Color color = sampler->sample_bilinear(tex, u, v);
+#else
+            float u_scale = 0.f;
+            float v_scale = 0.f;
+            auto [u1, v1, _0] = m * Vector3D{ static_cast<double>(x), static_cast<double>(y - 1), 1 };
+            auto [u2, v2, _1] = m * Vector3D{ static_cast<double>(x + 1), static_cast<double>(y), 1 };
+            auto du_dx = u2 - u;
+            auto dv_dx = v2 - v;
+            auto du_dy = u1 - u;
+            auto dv_dy = v1 - v;
+            auto lx2 = du_dx * du_dx + dv_dx * dv_dx;
+            auto ly2 = du_dy * du_dy + dv_dy * dv_dy;
+            auto l = std::sqrt(std::max(lx2, ly2));
+            Color color = sampler->sample_trilinear(tex, u, v, std::log2(l), 0);
+#endif // !MIPMAP
+#ifdef SSAA
+            render_point(x, y, color, &supersample_target[0], target_w * sample_rate, target_h * sample_rate);
+#elif defined(MLAA)
+            render_point(x, y, color, &mlaa_sample_target[0], target_w, target_h);
+#else
+            render_point(x, y, color, render_target, target_w, target_h);
+#endif
+        }
+    }
+
 }
 
 #ifdef SSAA
@@ -721,7 +822,7 @@ void SoftwareRendererImp::resolve(void)
                     render_target_tmp[index + 1] / 255.f,
                     render_target_tmp[index + 2] / 255.f,
                     render_target_tmp[index + 3] / 255.f };
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
         }
     }
 #elif defined(MLAA)
@@ -740,7 +841,7 @@ void SoftwareRendererImp::resolve(void)
                     render_target_tmp[4 * index + 1] / 255.f,
                     render_target_tmp[4 * index + 2] / 255.f,
                     render_target_tmp[4 * index + 3] / 255.f };
-                render_point(x, y, color, render_target, target_w);
+                render_point(x, y, color, render_target, target_w, target_h);
             }
         }
         return;
@@ -917,7 +1018,7 @@ void SoftwareRendererImp::resolve(void)
     }
 
     // loop for color blend and show final mlaa image
-    // current pixel color is blended by formual ( Ctop * wTop + Cdown * wDown + Cleft * wLeft + Cright * wRight ) / 2, wRop and wDown 
+    // current pixel color is blended by formual ( Ctop * wTop + Cdown * wDown + Cleft * wLeft + Cright * wRight ) / 2 
     for (size_t y = 1; y < target_h-1; ++y) {
         int yAxi = y * target_w;
         for (size_t x = 1; x < target_w-1; ++x) {
@@ -934,12 +1035,13 @@ void SoftwareRendererImp::resolve(void)
             Color newX = (1 - wTop - wDown) * old + wTop * top + wDown * down;
             Color newY = (1 - wLeft - wRight) * old + wLeft * left + wRight * right;
             Color newColor = (newX + newY) * 0.5;
-            if (newColor == Color::White)
+            Color canvas = { render_target[4 * index] / 255.f, render_target[4 * index + 1] / 255.f, render_target[4 * index + 2] / 255.f, render_target[4 * index + 3] / 255.f};
+            if (newColor == canvas)
                 newColor = { render_target_tmp[4 * index] / 255.f,
                     render_target_tmp[4 * index + 1] / 255.f,
                     render_target_tmp[4 * index + 2] / 255.f,
                     render_target_tmp[4 * index + 3] / 255.f };
-            render_point(x, y, newColor, render_target, target_w);
+            render_point(x, y, newColor, render_target, target_w, target_h);
         }
     }
 
@@ -955,7 +1057,7 @@ void SoftwareRendererImp::resolve(void)
                           render_target_tmp[4 * index + 1] / 255.f,
                           render_target_tmp[4 * index + 2] / 255.f,
                           render_target_tmp[4 * index + 3] / 255.f };
-            render_point(x, y, color, render_target, target_w);
+            render_point(x, y, color, render_target, target_w, target_h);
         }
     }*/
 
@@ -970,7 +1072,7 @@ void SoftwareRendererImp::resolve(void)
                      render_target_tmp[4 * index + 1] / 255.f,
                      render_target_tmp[4 * index + 2] / 255.f,
                      render_target_tmp[4 * index + 3] / 255.f };
-             render_point(x, y, color, render_target, target_w);
+             render_point(x, y, color, render_target, target_w, target_h);
          }
      }*/
 
@@ -987,7 +1089,7 @@ void SoftwareRendererImp::resolve(void)
                      render_target_tmp[4 * index + 1] / 255.f,
                      render_target_tmp[4 * index + 2] / 255.f,
                      render_target_tmp[4 * index + 3] / 255.f };
-             render_point(x, y, color, render_target, target_w);
+             render_point(x, y, color, render_target, target_w, target_h);
          }
      }*/
 

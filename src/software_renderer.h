@@ -8,10 +8,14 @@
 #include "texture.h"
 #include "svg_renderer.h"
 
+
 //#define LINE_DRAWING_MIDPOINT
 #define LINE_DRWAING_BRESENHAM
+
 //#define SSAA
-#define MLAA
+//#define MLAA
+
+#define MIPMAP
 
 namespace CMU462 { // CMU462
 
@@ -111,6 +115,9 @@ class SoftwareRendererImp : public SoftwareRenderer {
   };
 #endif
 #endif
+
+  // task5 for Model Transform //
+  Matrix3x3 group_transform;
 
   // Primitive Drawing //
 

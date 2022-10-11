@@ -98,19 +98,19 @@ The application will load up to nine files from that path and each file will be 
 
 A table of all the keyboard controls in the **draw** application is provided below.
 
-| Command                                           |  Key  |
-| ------------------------------------------------- | :---: |
+| Command                                           | Key   |
+| ------------------------------------------------- |:-----:|
 | Go to tab                                         | 1 ~ 9 |
-| Switch to hw renderer                             |   H   |
-| Switch to sw renderer                             |   S   |
-| Toggle sw renderer impl (student soln/ref soln)   |   R   |
-| Regenerate mipmaps for current tab (student soln) |   ;   |
-| Regenerate mipmaps for current tab (ref soln)     |   '   |
-| Increase samples per pixel                        |   =   |
-| Decrease samples per pixel                        |   -   |
-| Toggle text overlay                               |   `   |
-| Toggle pixel inspector view                       |   Z   |
-| Toggle image diff view                            |   D   |
+| Switch to hw renderer                             | H     |
+| Switch to sw renderer                             | S     |
+| Toggle sw renderer impl (student soln/ref soln)   | R     |
+| Regenerate mipmaps for current tab (student soln) | ;     |
+| Regenerate mipmaps for current tab (ref soln)     | '     |
+| Increase samples per pixel                        | =     |
+| Decrease samples per pixel                        | -     |
+| Toggle text overlay                               | `     |
+| Toggle pixel inspector view                       | Z     |
+| Toggle image diff view                            | D     |
 | Reset viewport to default position                | SPACE |
 
 Other controls:
@@ -299,7 +299,7 @@ Please modify `draw_element()` to implement the hierarchy of transforms specifie
 
 When you are done, you should be able to draw `basic/test6.svg`.
 
-**Hint: If there is an SVGElement which is not in a group, the modeling transform should be the relationship between its local coordinate space and the canvas space. If it is in a group, the modeling transform should be the relationship between its local coordinate space and its parent element's local coordinate space. Look at how the transformation matrix in software renderer is applied, and think about how you can modify this to take into account each SVGElement's transform.**
+**Hint: If there is an SVGElement which is not in a group, the modeling transform should be the relationship between its local coordinate space and the canvas space. If it is in a group, the modeling transform should be the relationship between its local coordinate space and its parent element's local coordinate space.     Look at how the transformation matrix in software renderer is applied, and think about how you can modify this to take into account each SVGElement's transform.**
 
 ##### Part 2: Viewing Transform
 

@@ -64,18 +64,24 @@ void Sampler2DImp::generate_mips(Texture& tex, int startLevel) {
 
   }
 
-  // fill all 0 sub levels with interchanging colors (JUST AS A PLACEHOLDER)
-  Color colors[3] = { Color(1,0,0,1), Color(0,1,0,1), Color(0,0,1,1) };
-  for(size_t i = 1; i < tex.mipmap.size(); ++i) {
-
-    Color c = colors[i % 3];
-    MipLevel& mip = tex.mipmap[i];
-
-    for(size_t i = 0; i < 4 * mip.width * mip.height; i += 4) {
-      float_to_uint8( &mip.texels[i], &c.r );
-    }
+  for (size_t i = 1; i < tex.mipmap.size(); ++i) {
+      MipLevel& mip = tex.mipmap[i];
+      MipLevel& mip_prev = tex.mipmap[i - 1];
+      auto& texels = mip_prev.texels;
+      for (size_t y = 0; y < mip.height; ++y) {
+          for (size_t x = 0; x < mip.width; ++x) {
+              int index_prev = 2 * y * mip_prev.width + 2 * x;
+              Color tl, tr, bl, br;
+              uint8_to_float(&tl.r, &texels[4 * index_prev]);
+              uint8_to_float(&tr.r, &texels[4 * (index_prev + 1)]);
+              uint8_to_float(&bl.r, &texels[4 * (index_prev + mip_prev.width)]);
+              uint8_to_float(&br.r, &texels[4 * (index_prev + mip_prev.width + 1)]);
+              Color c = (tl + tr + bl + br) * 0.25;
+              int index = y * mip.width + x;
+              float_to_uint8(&mip.texels[4 * index], &c.r);
+          }
+      }
   }
-
 }
 
 Color Sampler2DImp::sample_nearest(Texture& tex, 
@@ -83,10 +89,28 @@ Color Sampler2DImp::sample_nearest(Texture& tex,
                                    int level) {
 
   // Task 6: Implement nearest neighbour interpolation
-  
-  // return magenta for invalid level
-  return Color(1,0,1,1);
-
+  float u_p = u * tex.width - 0.5;
+  float v_p = v * tex.height - 0.5;
+  int u0 = std::floor(u_p);
+  int v0 = std::floor(v_p);
+  int u1 = u0 + 1;
+  int v1 = v0 + 1;
+  float u0_weight = u1 - u_p;
+  float v0_weight = v1 - v_p;
+  MipLevel& mipLevel = tex.mipmap[level];
+  size_t width = mipLevel.width;
+  if (u0_weight >= 0.5) {
+      if (v0_weight >= 0.5)
+          return Color{ mipLevel.texels[4 * (u0 + v0 * width)] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 1] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 2] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 3] / 255.f };
+      else
+          return Color{ mipLevel.texels[4 * (u0 + v1 * width)] / 255.f, mipLevel.texels[4 * (u0 + v1 * width) + 1] / 255.f, mipLevel.texels[4 * (u0 + v1 * width) + 2] / 255.f, mipLevel.texels[4 * (u0 + v1 * width) + 3] / 255.f };
+  }
+  else {
+      if(v0_weight >= 0.5)
+          return Color{ mipLevel.texels[4 * (u1 + v0 * width)] / 255.f, mipLevel.texels[4 * (u1 + v0 * width) + 1] / 255.f, mipLevel.texels[4 * (u1 + v0 * width) + 2] / 255.f, mipLevel.texels[4 * (u1 + v0 * width) + 3] / 255.f };
+      else
+          return Color{ mipLevel.texels[4 * (u1 + v1 * width)] / 255.f, mipLevel.texels[4 * (u1 + v1 * width) + 1] / 255.f, mipLevel.texels[4 * (u1 + v1 * width) + 2] / 255.f, mipLevel.texels[4 * (u1 + v1 * width) + 3] / 255.f };
+  }
 }
 
 Color Sampler2DImp::sample_bilinear(Texture& tex, 
@@ -94,10 +118,28 @@ Color Sampler2DImp::sample_bilinear(Texture& tex,
                                     int level) {
   
   // Task 6: Implement bilinear filtering
-
-  // return magenta for invalid level
-  return Color(1,0,1,1);
-
+  MipLevel& mipLevel = tex.mipmap[level];
+  float u_p = u * mipLevel.width - 0.5;
+  float v_p = v * mipLevel.height - 0.5;
+  int u0 = std::floor(u_p);
+  int v0 = std::floor(v_p);
+  int u1 = u0 + 1;
+  int v1 = v0 + 1;
+  float u0_weight = u1 - u_p;
+  float v0_weight = v1 - v_p;
+  size_t width = mipLevel.width;
+  if (u0 >= 0 && u0 < width - 1 && v0 >= 0 && v0 < mipLevel.height - 1)
+  {
+      Color u0_v0 = { mipLevel.texels[4 * (u0 + v0 * width)] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 1] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 2] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 3] / 255.f };
+      Color u0_v1 = { mipLevel.texels[4 * (u0 + v1 * width)] / 255.f, mipLevel.texels[4 * (u0 + v1 * width) + 1] / 255.f, mipLevel.texels[4 * (u0 + v1 * width) + 2] / 255.f, mipLevel.texels[4 * (u0 + v1 * width) + 3] / 255.f };
+      Color u1_v0 = { mipLevel.texels[4 * (u1 + v0 * width)] / 255.f, mipLevel.texels[4 * (u1 + v0 * width) + 1] / 255.f, mipLevel.texels[4 * (u1 + v0 * width) + 2] / 255.f, mipLevel.texels[4 * (u1 + v0 * width) + 3] / 255.f };
+      Color u1_v1 = { mipLevel.texels[4 * (u1 + v1 * width)] / 255.f, mipLevel.texels[4 * (u1 + v1 * width) + 1] / 255.f, mipLevel.texels[4 * (u1 + v1 * width) + 2] / 255.f, mipLevel.texels[4 * (u1 + v1 * width) + 3] / 255.f };
+      return u0_weight * v0_weight * u0_v0 + u0_weight * (1 - v0_weight) * u0_v1 + (1 - u0_weight) * v0_weight * u1_v0 + (1 - u0_weight) * (1 - v0_weight) * u1_v1;
+  }
+  else if (u0 >= 0 && u0 < width && v0 >= 0 && v0 < mipLevel.height)
+      return { mipLevel.texels[4 * (u0 + v0 * width)] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 1] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 2] / 255.f, mipLevel.texels[4 * (u0 + v0 * width) + 3] / 255.f };
+  else
+      return Color::White;
 }
 
 Color Sampler2DImp::sample_trilinear(Texture& tex, 
@@ -105,10 +147,17 @@ Color Sampler2DImp::sample_trilinear(Texture& tex,
                                      float u_scale, float v_scale) {
 
   // Task 7: Implement trilinear filtering
-
-  // return magenta for invalid level
-  return Color(1,0,1,1);
-
+  auto k0 = std::floor(u_scale);
+  auto k1 = k0 + 1;
+  auto w0 = k1 - u_scale;
+  auto w1 = 1 - w0;
+  k0 = k0 < 0 ? 0 : k0;
+  k0 = k0 > tex.mipmap.size() - 1 ? tex.mipmap.size() - 1 : k0;
+  k1 = k1 < 0 ? 0 : k1;
+  k1 = k1 > tex.mipmap.size() - 1 ? tex.mipmap.size() - 1 : k1;
+  Color c0 = sample_bilinear(tex, u, v, k0);
+  Color c1 = sample_bilinear(tex, u, v,k1);
+  return w0 * c0 + w1 * c1;
 }
 
 } // namespace CMU462
